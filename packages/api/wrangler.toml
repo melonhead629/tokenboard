@@ -1,0 +1,12 @@
+name = "tokenboard-api"
+main = "src/index.ts"
+compatibility_date = "2025-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tokenboard"
+database_id = "placeholder-create-with-wrangler"
+
+[vars]
+GITHUB_CLIENT_ID = ""
+JWT_SECRET = ""

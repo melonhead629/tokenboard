@@ -13,7 +13,11 @@ import Table from "cli-table3";
 import { ALL_PARSERS } from "./parsers/index.js";
 import { sanitize } from "./security/sanitizer.js";
 import { auditPayload } from "./security/auditor.js";
-import { CLIENT_VERSION } from "./config.js";
+import {
+  CLIENT_VERSION,
+  getLastSubmitTime,
+  setLastSubmitTime,
+} from "./config.js";
 import * as api from "./api/client.js";
 
 const program = new Command();
@@ -99,11 +103,29 @@ program
   .description("Submit usage data to the leaderboard")
   .option("--since <date>", "Start date (YYYY-MM-DD)")
   .option("--until <date>", "End date (YYYY-MM-DD)")
+  .option("--since-last", "Only submit data since the last successful submission")
   .option("--agent <agent>", "Filter by agent")
   .option("--dry-run", "Show what would be sent without sending")
+  .option("--quiet", "Suppress output (for hooks/automation)")
   .action(async (opts) => {
-    const since = opts.since ? new Date(opts.since) : undefined;
+    const quiet = !!opts.quiet;
+    const log = quiet ? () => {} : console.log;
+
+    // Resolve --since-last to an actual date
+    let since = opts.since ? new Date(opts.since) : undefined;
     const until = opts.until ? new Date(opts.until) : undefined;
+
+    if (opts.sinceLast) {
+      const lastSubmit = await getLastSubmitTime();
+      if (lastSubmit) {
+        since = lastSubmit;
+        log(chalk.dim(`Submitting data since last sync: ${lastSubmit.toISOString()}`));
+      } else {
+        log(chalk.dim("No previous submission found. Submitting all data."));
+      }
+    }
+
+    const submitStartTime = new Date();
 
     // Parse all available agents
     const allEntries = [];
@@ -120,7 +142,7 @@ program
     }
 
     if (allEntries.length === 0) {
-      console.log(chalk.yellow("No usage data found. Nothing to submit."));
+      log(chalk.dim("No new usage data. Nothing to submit."));
       return;
     }
 
@@ -134,17 +156,21 @@ program
     }
 
     // Submit
-    console.log(
+    log(
       chalk.bold(
-        `\nSubmitting ${payload.entries.length.toLocaleString()} entries...`
+        `Submitting ${payload.entries.length.toLocaleString()} entries...`
       )
     );
 
     const result = await api.submitUsage(payload);
     if (result.ok) {
-      console.log(chalk.green("✓ Submitted successfully!"));
+      // Update high-water mark on success
+      await setLastSubmitTime(submitStartTime);
+      log(chalk.green("✓ Submitted successfully!"));
     } else {
-      console.log(chalk.red(`✗ Failed: ${result.error}`));
+      log(chalk.red(`✗ Failed: ${result.error}`));
+      // Exit with error code for hook visibility
+      if (quiet) process.exit(1);
     }
   });
 
@@ -291,6 +317,144 @@ program
       console.log(chalk.green("✓ All data deleted."));
     } else {
       console.log(chalk.red(`✗ Failed: ${result.error}`));
+    }
+  });
+
+// ─── INSTALL ───────────────────────────────────────────────────────
+// Auto-submit hook for Claude Code. One command, always-on competition.
+
+program
+  .command("install")
+  .description("Install auto-submit hook into Claude Code")
+  .action(async () => {
+    const { readFile, writeFile, mkdir } = await import("fs/promises");
+    const { join } = await import("path");
+    const { homedir } = await import("os");
+
+    const claudeDir = join(homedir(), ".claude");
+    const settingsPath = join(claudeDir, "settings.json");
+
+    // Use npx for portability — works even if not globally installed
+    const hookCmd = "npx --yes tokenboard@latest submit --since-last --quiet";
+
+    const hookEntry = {
+      matcher: "",
+      hooks: [
+        {
+          type: "command" as const,
+          command: hookCmd,
+          timeout: 30,
+        },
+      ],
+    };
+
+    try {
+      await mkdir(claudeDir, { recursive: true });
+
+      // Read existing settings (or start fresh)
+      let settings: Record<string, unknown> = {};
+      try {
+        const existing = await readFile(settingsPath, "utf-8");
+        settings = JSON.parse(existing);
+      } catch {
+        // No existing settings file
+      }
+
+      // Claude Code hooks format: { hooks: { EventName: [ { matcher, hooks: [...] } ] } }
+      const allHooks = (settings.hooks || {}) as Record<string, unknown[]>;
+      const stopHooks = (allHooks.Stop || []) as Array<{
+        matcher?: string;
+        hooks?: Array<{ type: string; command: string }>;
+        type?: string;
+        command?: string;
+      }>;
+
+      // Check if already installed (in any format)
+      const alreadyInstalled = stopHooks.some((entry) => {
+        // Check nested format
+        if (entry.hooks) {
+          return entry.hooks.some((h) => h.command?.includes("tokenboard"));
+        }
+        // Check flat format
+        return entry.command?.includes("tokenboard");
+      });
+
+      if (alreadyInstalled) {
+        console.log(chalk.yellow("Tokenboard hook is already installed."));
+        console.log(chalk.dim("Run `tokenboard uninstall` to remove it."));
+        return;
+      }
+
+      // Add our hook in the correct Claude Code format
+      stopHooks.push(hookEntry);
+      allHooks.Stop = stopHooks;
+      settings.hooks = allHooks;
+
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2));
+
+      console.log();
+      console.log(chalk.green.bold("✓ Tokenboard hook installed!"));
+      console.log();
+      console.log("Every time a Claude Code session ends, your token usage");
+      console.log("will be automatically submitted to the leaderboard.");
+      console.log();
+      console.log(chalk.dim("Hook details:"));
+      console.log(chalk.dim(`  Event:   Stop (session end)`));
+      console.log(chalk.dim(`  Command: ${hookCmd}`));
+      console.log(chalk.dim(`  File:    ${settingsPath}`));
+      console.log();
+      console.log(chalk.dim("Only token counts are sent. Never code, prompts, or paths."));
+      console.log(chalk.dim("Run `tokenboard submit --dry-run` to verify anytime."));
+      console.log(chalk.dim("Run `tokenboard uninstall` to remove the hook."));
+    } catch (err) {
+      console.log(chalk.red(`✗ Failed to install hook: ${err}`));
+    }
+  });
+
+program
+  .command("uninstall")
+  .description("Remove auto-submit hook from Claude Code")
+  .action(async () => {
+    const { readFile, writeFile } = await import("fs/promises");
+    const { join } = await import("path");
+    const { homedir } = await import("os");
+
+    const settingsPath = join(homedir(), ".claude", "settings.json");
+
+    try {
+      const existing = await readFile(settingsPath, "utf-8");
+      const settings = JSON.parse(existing) as Record<string, unknown>;
+      const hooks = (settings.hooks || {}) as Record<string, unknown[]>;
+      const stopHooks = (hooks.Stop || []) as Array<{
+        matcher?: string;
+        hooks?: Array<{ type: string; command: string }>;
+        type?: string;
+        command?: string;
+      }>;
+
+      // Filter out any entry that contains "tokenboard" in any format
+      const filtered = stopHooks.filter((entry) => {
+        if (entry.hooks) {
+          return !entry.hooks.some((h) => h.command?.includes("tokenboard"));
+        }
+        return !entry.command?.includes("tokenboard");
+      });
+
+      if (filtered.length === stopHooks.length) {
+        console.log(chalk.dim("No Tokenboard hook found. Nothing to remove."));
+        return;
+      }
+
+      hooks.Stop = filtered;
+      if (filtered.length === 0) delete hooks.Stop;
+      if (Object.keys(hooks).length === 0) delete settings.hooks;
+
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2));
+
+      console.log(chalk.green("✓ Tokenboard hook removed."));
+      console.log(chalk.dim("Auto-submit is now disabled."));
+    } catch {
+      console.log(chalk.dim("No settings file found. Nothing to remove."));
     }
   });
 

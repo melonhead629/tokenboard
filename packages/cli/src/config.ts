@@ -67,3 +67,28 @@ export async function clearAuth(): Promise<void> {
     // Already gone
   }
 }
+
+// ─── High-Water Mark ───────────────────────────────────────────────
+// Tracks the last successful submission timestamp so --since-last
+// only sends new data. Prevents double-counting.
+
+const WATERMARK_FILE = join(CONFIG_DIR, "last_submit.json");
+
+export async function getLastSubmitTime(): Promise<Date | null> {
+  try {
+    const data = await readFile(WATERMARK_FILE, "utf-8");
+    const parsed = JSON.parse(data) as { last_submit: string };
+    const date = new Date(parsed.last_submit);
+    return isNaN(date.getTime()) ? null : date;
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastSubmitTime(time: Date): Promise<void> {
+  await ensureDir();
+  await writeFile(
+    WATERMARK_FILE,
+    JSON.stringify({ last_submit: time.toISOString() }, null, 2)
+  );
+}

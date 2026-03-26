@@ -1,5 +1,3 @@
-#!/usr/bin/env node --import tsx
-
 /**
  * Tokenboard CLI
  *
@@ -335,7 +333,9 @@ program
     const settingsPath = join(claudeDir, "settings.json");
 
     // Use npx for portability — works even if not globally installed
-    const hookCmd = "npx --yes tokenboard@latest submit --since-last --quiet";
+    // Use absolute path to built bundle until published to npm
+    // After `npm publish`, this can become: npx tokenboard submit --since-last --quiet
+    const hookCmd = `node ${join(homedir(), "Desktop", "tokenboard", "packages", "cli", "dist", "index.js")} submit --since-last --quiet`;
 
     const hookEntry = {
       matcher: "",

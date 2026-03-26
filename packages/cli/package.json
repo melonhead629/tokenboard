@@ -1,26 +1,48 @@
 {
   "name": "tokenboard",
   "version": "0.1.0",
-  "type": "module",
+  "description": "The multiplayer leaderboard for AI token usage",
   "bin": {
-    "tokenboard": "src/index.ts"
+    "tokenboard": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsup",
     "dev": "tsx src/index.ts",
     "scan": "tsx src/index.ts scan",
-    "submit-dry": "tsx src/index.ts submit --dry-run"
+    "submit-dry": "tsx src/index.ts submit --dry-run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "tokens",
+    "leaderboard",
+    "claude",
+    "copilot",
+    "cursor",
+    "codex",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/melonhead629/tokenboard.git",
+    "directory": "packages/cli"
   },
   "dependencies": {
-    "@tokenboard/shared": "file:../shared",
-    "commander": "^13.0.0",
-    "better-sqlite3": "^11.0.0",
-    "chalk": "^5.4.0",
-    "cli-table3": "^0.6.5",
-    "open": "^10.1.0"
+    "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
+    "@tokenboard/shared": "file:../shared",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
+    "chalk": "^5.4.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.0.0",
+    "open": "^10.1.0",
+    "tsup": "^8.5.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

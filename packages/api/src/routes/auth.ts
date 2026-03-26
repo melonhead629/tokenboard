@@ -62,6 +62,7 @@ auth.post("/github/callback", async (c) => {
       },
       body: JSON.stringify({
         client_id: c.env.GITHUB_CLIENT_ID,
+        client_secret: c.env.GITHUB_CLIENT_SECRET,
         device_code: body.device_code,
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       }),
@@ -90,6 +91,7 @@ auth.post("/github/callback", async (c) => {
     headers: {
       Authorization: `Bearer ${tokenData.access_token}`,
       Accept: "application/json",
+      "User-Agent": "Tokenboard/0.1.0",
     },
   });
 

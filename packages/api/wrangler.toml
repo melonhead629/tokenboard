@@ -5,8 +5,7 @@ compatibility_date = "2025-12-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "tokenboard"
-database_id = "placeholder-create-with-wrangler"
+database_id = "8723e1f6-9b4d-481e-af48-3d35fd4b4288"
 
 [vars]
-GITHUB_CLIENT_ID = ""
-JWT_SECRET = ""
+GITHUB_CLIENT_ID = "Ov23liYSJxWMajbG9Yka"

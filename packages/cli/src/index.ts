@@ -15,6 +15,10 @@ import {
   CLIENT_VERSION,
   getLastSubmitTime,
   setLastSubmitTime,
+  getConfig,
+  getAuth,
+  saveAuth,
+  clearAuth,
 } from "./config.js";
 import * as api from "./api/client.js";
 
@@ -91,6 +95,101 @@ program
       )
     );
     console.log(chalk.dim("\nNo data was sent. Use `tokenboard submit` to compete."));
+  });
+
+// ─── LOGIN ─────────────────────────────────────────────────────────
+// GitHub OAuth Device Flow — works in terminals, no redirect needed.
+
+program
+  .command("login")
+  .description("Authenticate with GitHub")
+  .action(async () => {
+    const existing = await getAuth();
+    if (existing) {
+      console.log(chalk.dim(`Already logged in as ${existing.github_username}.`));
+      console.log(chalk.dim("Run `tokenboard logout` to switch accounts."));
+      return;
+    }
+
+    const config = await getConfig();
+    console.log(chalk.bold("\nAuthenticating with GitHub...\n"));
+
+    // Step 1: Request device code
+    const deviceRes = await fetch(`${config.api_url}/api/v1/auth/github`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const deviceData = (await deviceRes.json()) as {
+      device_code: string;
+      user_code: string;
+      verification_uri: string;
+      interval: number;
+    };
+
+    console.log(`Open ${chalk.bold(deviceData.verification_uri)} and enter code:\n`);
+    console.log(chalk.bold.green(`  ${deviceData.user_code}\n`));
+
+    // Try to open browser
+    try {
+      const { default: open } = await import("open");
+      await open(deviceData.verification_uri);
+      console.log(chalk.dim("(Browser opened automatically)"));
+    } catch {
+      // Manual open is fine
+    }
+
+    console.log(chalk.dim("\nWaiting for authorization..."));
+
+    // Step 2: Poll for completion
+    const interval = (deviceData.interval || 5) * 1000;
+    const maxAttempts = 60;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, interval));
+
+      const callbackRes = await fetch(`${config.api_url}/api/v1/auth/github/callback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_code: deviceData.device_code }),
+      });
+
+      if (callbackRes.status === 202) {
+        // Still waiting
+        continue;
+      }
+
+      const callbackData = (await callbackRes.json()) as {
+        token?: string;
+        github_username?: string;
+        expires_at?: string;
+        error?: string;
+      };
+
+      if (callbackData.token) {
+        await saveAuth({
+          token: callbackData.token,
+          github_username: callbackData.github_username!,
+          expires_at: callbackData.expires_at!,
+        });
+        console.log(chalk.green(`\n✓ Logged in as ${callbackData.github_username}!`));
+        return;
+      }
+
+      if (callbackData.error && callbackData.error !== "authorization_pending") {
+        console.log(chalk.red(`\n✗ Auth failed: ${callbackData.error}`));
+        return;
+      }
+    }
+
+    console.log(chalk.red("\n✗ Timed out waiting for authorization."));
+  });
+
+program
+  .command("logout")
+  .description("Remove stored authentication")
+  .action(async () => {
+    await clearAuth();
+    console.log(chalk.green("✓ Logged out."));
   });
 
 // ─── SUBMIT ────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ export interface AuthData {
 }
 
 const DEFAULT_CONFIG: Config = {
-  api_url: "https://api.tokenboard.dev",
+  api_url: "https://tokenboard-api.alec-430.workers.dev",
   default_period: "week",
 };
 
